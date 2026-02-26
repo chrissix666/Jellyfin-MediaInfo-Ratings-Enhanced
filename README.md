@@ -28,7 +28,7 @@ Rather than maintaining separate basic and user editions, this script combines b
 This script is intended for use with Jellyfin Web.
 
 1. Install a JavaScript injector plugin (e.g., Jellyfin JavaScript Injector plugin or a userscript manager such as Tampermonkey/Violentmonkey).  
-2. Create a new script and paste the contents of `Jellyfin-MediaInfo-Ratings-Enhanced.js` into the injector.  
+2. Create a new script and paste the contents of `Jellyfin-MediaInfo-Ratings-Enhanced-v1.js` into the injector.  
 3. Adjust the configuration section at the top of the script to your needs (API key, enabled sources, UI behavior).  
 4. Save and reload the Jellyfin Web interface.
 
