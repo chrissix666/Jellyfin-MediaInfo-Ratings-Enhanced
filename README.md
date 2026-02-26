@@ -1,5 +1,7 @@
 # Jellyfin MediaInfo Ratings Enhanced & Customizable
 
+!!BEFORE USE CONFIG the .js ON TOP FIRST TO YOUR DESIRED LOOK & FEEL (GLOBAL, MOVIES, TVSHOWS)!!
+
 Tested on & Requirements: Windows 11, Chrome, Jellyfin Web, JavaScript Injector, needs MDBList API-KEY (free)
 
 Designed for Jellyfin Web version via JavaScript Inject: Enhances the Jellyfin MediaInfo ratings section with extended multi-source support, flexible configuration, optional UI fixes, and positional control for internal and external ratings.
