@@ -794,4 +794,5 @@
   scanAndProcessLinks();
   if (CONFIG_GLOBAL.TRIGGERS.pollMs > 0) setInterval(scanAndProcessLinks, CONFIG_GLOBAL.TRIGGERS.pollMs);
   log('Boot complete.');
+
 })();
