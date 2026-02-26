@@ -12,7 +12,7 @@
     // - "user": uses GM_xmlhttpRequest
     MODE: 'user', // basic | user
     // MDBList API key (required to query mdblist.com for ratings)
-    API_KEY: 'w09o1apy8iwca2m7lx00v4nps',
+    API_KEY: '',
     // Enable/disable debug logging (when true, extra logs will be printed to the browser console)
     DEBUG: false,
     // Polling triggers for detecting and processing newly inserted TMDB links in the page
@@ -794,4 +794,5 @@
   scanAndProcessLinks();
   if (CONFIG_GLOBAL.TRIGGERS.pollMs > 0) setInterval(scanAndProcessLinks, CONFIG_GLOBAL.TRIGGERS.pollMs);
   log('Boot complete.');
+
 })();
