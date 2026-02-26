@@ -7,6 +7,8 @@ This modification is based on [Druidblack](https://github.com/Druidblack)’s (h
 [Druidblack](https://github.com/Druidblack) originally provided four separate script variants: Version 1 and Version 2, each available in both “basic” (window.fetch) and “user” (GM_xmlhttpRequest) modes. For stability, maintainability, and structural consistency reasons, this modification is built exclusively on Version 1.
 Rather than maintaining separate basic and user editions, this script combines both network approaches into a single unified implementation. The desired mode can be selected via configuration, allowing seamless switching between standard fetch requests and GM_xmlhttpRequest without requiring separate script files.
 
+<img src="Screenshot.png" width="600">
+
 ---
 
 ## Features
