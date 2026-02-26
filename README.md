@@ -1,5 +1,7 @@
 # Jellyfin MediaInfo Ratings Enhanced & Customizable
 
+Tested on & Requirements: Windows 11, Chrome, Jellyfin Web, JavaScript Injector, needs MDBList API-KEY (free)
+
 Designed for Jellyfin Web version via JavaScript Inject: Enhances the Jellyfin MediaInfo ratings section with extended multi-source support, flexible configuration, optional UI fixes, and positional control for internal and external ratings.
 
 This modification is based on [Druidblack](https://github.com/Druidblack)’s (https://github.com/Druidblack/jellyfin_ratings) both Version 1 original scripts and extends it with independent feature toggles, configurable source ordering, rating limits, optional layout adjustments, and more. It supports repositioning of the “Ends at” display for movies as well as flexible internal and external ratings placement for both movies and TV shows independent.
