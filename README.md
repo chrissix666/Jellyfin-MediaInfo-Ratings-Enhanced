@@ -1,6 +1,6 @@
 # Jellyfin MediaInfo Ratings Enhanced & Customizable
 
-!!BEFORE USE CONFIG the .js ON TOP FIRST TO YOUR DESIRED LOOK & FEEL (GLOBAL, MOVIES, TVSHOWS)!!
+!!BEFORE USE, CONFIG the .js ON TOP FIRST TO YOUR DESIRED LOOK & FEEL (GLOBAL, MOVIES, TVSHOWS)!!
 
 Tested on & Requirements: Windows 11, Chrome, Jellyfin Web, JavaScript Injector, needs MDBList API-KEY (free)
 
