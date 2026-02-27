@@ -12,6 +12,7 @@ This modification is based on [Druidblack](https://github.com/Druidblack)’s (h
 Rather than maintaining separate basic and user editions, this script combines both network approaches into a single unified implementation. The desired mode can be selected via configuration, allowing seamless switching between standard fetch requests and GM_xmlhttpRequest without requiring separate script files.
 
 <img src="Screenshot.png" width="600">
+*Screenshot is only example, lot of combinations possible. used Screenshot settings: disable Jellyfin internal critics rating; move Jellyfin internal star rating to next line. activate external ratings and move also to next line. Leave "ends at" for movies in main line. (Repositioning possible but in this case not applied because not colliding with other ratings.) Rotten tomatoes fix, both enabled (but because Jellyfin internal critics set to hide, in our case only RT external visible). Ratings order and enabled status in this case default. (for e.g. TMDb on TV Shows not really needed). Optional max additional ratings visible, following the order limited to 6, on both Movies and TV Shows (but can be, as almost all, seperate handled).
 
 ---
 
