@@ -73,12 +73,12 @@
     // - "after_external": move to its own line after the external ratings line
     // - "same_external": move into the external ratings line (extra row)
     ENDING_AT_LINE_MODE: 'main', // main | after_main | after_external | same_external
-    // Replace Jellyfin internal DB critic icon with "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
+    // Replace Jellyfin internal DB critic icon with RT "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
     UI_CRITICSRATING_ICON_FRESH: true, // true | false
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Replace Rotten Tomatoes external "Certified" icon ("Fresh" was already included in original script)
+    // Replace Rotten Tomatoes external RT "Certified" icon (RT "Fresh" was already included in original script)
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -116,12 +116,12 @@
     UI_INTERNAL_RATINGS_NEW_LINE_MOVE: true, // true | false
     // Render external MDBList ratings in the extra row (second line) instead of the main row
     UI_EXTERNAL_RATINGS_NEW_LINE: true, // true | false
-    // Replace Jellyfin internal DB critic icon with "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
+    // Replace Jellyfin internal DB critic icon with RT "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
     UI_CRITICSRATING_ICON_FRESH: true, // true | false
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Replace Rotten Tomatoes external "Certified" icon ("Fresh" was already included in original script)
+    // Replace Rotten Tomatoes external RT "Certified" icon (RT "Fresh" was already included in original script)
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -796,5 +796,6 @@
   log('Boot complete.');
 
 })();
+
 
 
