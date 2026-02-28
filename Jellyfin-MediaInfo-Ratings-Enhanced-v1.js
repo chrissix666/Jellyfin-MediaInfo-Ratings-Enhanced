@@ -78,7 +78,7 @@
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Rotten Tomatoes "Certified" logic based on MDBList RT critics rating normalized to 0.0–10.0
+    // Replace Rotten Tomatoes external "Certified" icon ("Fresh" was already included in original script)
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -121,7 +121,7 @@
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Rotten Tomatoes "Certified" logic based on MDBList RT critics rating normalized to 0.0–10.0
+    // Replace Rotten Tomatoes external "Certified" icon ("Fresh" was already included in original script)
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -796,4 +796,5 @@
   log('Boot complete.');
 
 })();
+
 
