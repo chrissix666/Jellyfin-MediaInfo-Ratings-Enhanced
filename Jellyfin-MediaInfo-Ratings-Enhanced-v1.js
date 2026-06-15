@@ -299,128 +299,91 @@
       el.style.order = '';
     }
   }
+
+  // ============================================================
+  // Local dock: keep existing media info visually stiff
+  // ============================================================
+  const LOCAL_EXTRA_ROW_SPACE_PX = 34;
+
+  function saveStyleOnce(el, key, prop) {
+    if (!el || !el.dataset) return;
+    if (!(key in el.dataset)) el.dataset[key] = el.style[prop] || '';
+  }
+
+  function restoreStyle(el, key, prop) {
+    if (!el || !el.dataset) return;
+    if (key in el.dataset) {
+      el.style[prop] = el.dataset[key];
+      delete el.dataset[key];
+    }
+  }
+
   function findInfoWrapper(parent) {
     return parent && parent.closest ? parent.closest('.infoWrapper') : null;
   }
 
-  function getInfoColumnCompensationTargets(parent) {
+  function getBelowInfoTargets(parent) {
     const infoWrapper = findInfoWrapper(parent);
     if (!infoWrapper) return [];
-    const targets = Array.from(infoWrapper.children).filter((el) => {
-      if (!el || !el.classList) return false;
-      if (el.classList.contains('detailImageContainer')) return false;
-      return (
-        el.classList.contains('nameContainer') ||
-        el.classList.contains('itemMiscInfo') ||
-        el.classList.contains('overview') ||
-        el.classList.contains('people')
-      );
-    });
-    if (!targets.length) {
-      return Array.from(infoWrapper.children).filter((el) => {
-        return el && el.classList && !el.classList.contains('detailImageContainer');
-      });
-    }
+    const kids = Array.from(infoWrapper.children).filter((el) => el && el.nodeType === 1);
+    const start = kids.indexOf(parent);
+    if (start >= 0) return kids.slice(start + 1).filter((el) => !el.classList.contains('mdblist-local-dock-spacer'));
 
-    return targets;
-  }
-
-  function getInfoColumnAnchor(parent) {
-    const infoWrapper = findInfoWrapper(parent);
-    if (!infoWrapper) return null;
-
-    return (
-      infoWrapper.querySelector('.nameContainer') ||
-      infoWrapper.querySelector('.itemMiscInfo-primary') ||
-      getInfoColumnCompensationTargets(parent)[0] ||
-      null
-    );
-  }
-
-  function captureInfoColumnTop(parent) {
-    const anchor = getInfoColumnAnchor(parent);
-    if (!anchor) return null;
-    return anchor.getBoundingClientRect().top;
-  }
-
-  function resetInfoWrapperCompensation(parent) {
-    const targets = getInfoColumnCompensationTargets(parent);
-
-    targets.forEach((el) => {
-      if ('__mdblistOrigTransform' in el.dataset) {
-        el.style.transform = el.dataset.__mdblistOrigTransform;
-        delete el.dataset.__mdblistOrigTransform;
-      }
-
-      if ('__mdblistOrigTransformOrigin' in el.dataset) {
-        el.style.transformOrigin = el.dataset.__mdblistOrigTransformOrigin;
-        delete el.dataset.__mdblistOrigTransformOrigin;
-      }
-
-      if ('__mdblistOrigWillChange' in el.dataset) {
-        el.style.willChange = el.dataset.__mdblistOrigWillChange;
-        delete el.dataset.__mdblistOrigWillChange;
-      }
+    // Fallback for Jellyfin skins where itemMiscInfo is nested one level deeper.
+    return kids.filter((el) => {
+      if (el.contains(parent)) return false;
+      if (parent.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) return true;
+      return false;
     });
   }
 
-  function applyInfoColumnCompensation(parent, shift) {
-    const targets = getInfoColumnCompensationTargets(parent);
-    if (!targets.length) return;
+  function restoreLocalDock(parent) {
+    if (!parent) return;
+    restoreStyle(parent, '__mdblistOrigPosition', 'position');
+    restoreStyle(parent, '__mdblistOrigOverflow', 'overflow');
 
-    const roundedShift = Math.round(shift * 100) / 100;
+    getBelowInfoTargets(parent).forEach((el) => {
+      restoreStyle(el, '__mdblistOrigTransform', 'transform');
+      restoreStyle(el, '__mdblistOrigWillChange', 'willChange');
+    });
+  }
 
-    targets.forEach((el) => {
-      if (!('__mdblistOrigTransform' in el.dataset)) {
-        el.dataset.__mdblistOrigTransform = el.style.transform || '';
-      }
-      if (!('__mdblistOrigTransformOrigin' in el.dataset)) {
-        el.dataset.__mdblistOrigTransformOrigin = el.style.transformOrigin || '';
-      }
-      if (!('__mdblistOrigWillChange' in el.dataset)) {
-        el.dataset.__mdblistOrigWillChange = el.style.willChange || '';
-      }
+  function applyLocalDock(parent, extraRow) {
+    if (!parent || !extraRow) return;
 
+    // The injected row must not add height to itemMiscInfo; otherwise Jellyfin recenters
+    // the whole header area and everything above creeps upward.
+    saveStyleOnce(parent, '__mdblistOrigPosition', 'position');
+    saveStyleOnce(parent, '__mdblistOrigOverflow', 'overflow');
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+    parent.style.overflow = 'visible';
+
+    extraRow.classList.add('mdblist-local-docked-row');
+    extraRow.style.position = 'absolute';
+    extraRow.style.left = '0';
+    extraRow.style.right = '0';
+    extraRow.style.top = 'calc(100% + 6px)';
+    extraRow.style.width = '100%';
+    extraRow.style.zIndex = '3';
+    extraRow.style.marginTop = '0';
+    extraRow.style.pointerEvents = 'auto';
+
+    // Only content BELOW the media info gets visually lowered. Title, year, buttons,
+    // and the original media info line stay untouched.
+    const shift = LOCAL_EXTRA_ROW_SPACE_PX;
+    getBelowInfoTargets(parent).forEach((el) => {
+      saveStyleOnce(el, '__mdblistOrigTransform', 'transform');
+      saveStyleOnce(el, '__mdblistOrigWillChange', 'willChange');
       const orig = el.dataset.__mdblistOrigTransform || '';
-      el.style.transform = `${orig}${orig ? ' ' : ''}translateY(${roundedShift}px)`;
-      el.style.transformOrigin = 'top left';
+      el.style.transform = `${orig}${orig ? ' ' : ''}translateY(${shift}px)`;
       el.style.willChange = 'transform';
-    });
-  }
-
-  function updateInfoWrapperCompensation(parent, wantedTop) {
-    if (wantedTop == null || !isFinite(wantedTop)) return;
-
-    const anchor = getInfoColumnAnchor(parent);
-    if (!anchor) return;
-
-    // First restore the original transform, then measure the real browser layout.
-    // This avoids guessing with "half a row" and instead pins the same visual top
-    // before and after the injected ratings line appears.
-    resetInfoWrapperCompensation(parent);
-
-    const currentTop = anchor.getBoundingClientRect().top;
-    const shift = wantedTop - currentTop;
-
-    if (Math.abs(shift) < 0.25) return;
-    applyInfoColumnCompensation(parent, shift);
-  }
-
-  function scheduleInfoWrapperCompensation(parent, wantedTop) {
-    const stableTop = wantedTop == null ? captureInfoColumnTop(parent) : wantedTop;
-
-    requestAnimationFrame(() => {
-      updateInfoWrapperCompensation(parent, stableTop);
-      requestAnimationFrame(() => updateInfoWrapperCompensation(parent, stableTop));
-      setTimeout(() => updateInfoWrapperCompensation(parent, stableTop), 80);
-      setTimeout(() => updateInfoWrapperCompensation(parent, stableTop), 250);
     });
   }
   // ============================================================
   // Cleanup Injected Elements
   // ============================================================
   function cleanupInjected(parent) {
-    resetInfoWrapperCompensation(parent);
+    restoreLocalDock(parent);
     const rows = Array.from(parent.querySelectorAll('div.mdblist-extra-row,div.mdblist-ends-row'));
     parent.querySelectorAll('div.mdblist-rating-container').forEach((el) => {
       resetFlexOrder(el);
@@ -636,9 +599,6 @@
     return Math.max(1, Math.floor(raw));
   }
   function renderRatingsFromData(CFG, data, container) {
-    const parentForStabilize = container.closest ? container.closest('div.itemMiscInfo') : null;
-    const stableInfoTop = parentForStabilize ? captureInfoColumnTop(parentForStabilize) : null;
-
     if (!Array.isArray(data?.ratings)) return;
     while (container.firstChild) container.removeChild(container.firstChild);
     const items = [];
@@ -703,8 +663,6 @@
       span.style.verticalAlign = 'middle';
       container.appendChild(span);
     });
-
-    if (parentForStabilize) scheduleInfoWrapperCompensation(parentForStabilize, stableInfoTop);
   }
   function fetchRatings(CFG, apiType, tmdbId, container) {
     const key = makeCacheKey(apiType, tmdbId);
@@ -778,6 +736,7 @@
       const isFlex = disp.includes('flex');
       if (isFlex) setFlexOrder(extraRow, 10000);
     }
+    applyLocalDock(parent, extraRow);
     return { extraRow, extraInner };
   }
   function ensureEndsRowAfter(parent, whereOrder, endsAtEl) {
@@ -800,7 +759,6 @@
     }
   }
   function reconcile(CFG, parent, apiType, tmdbId, externalAllowed, supportsEndingAt) {
-    const stableInfoTop = captureInfoColumnTop(parent);
     const internalVisible = isAnyInternalVisible(CFG);
     cleanupInjected(parent);
     const { star: starEl, critic: criticEl } = getInternalEls(parent);
@@ -856,7 +814,6 @@
           applyEndsAtPositionWithinLine(CFG, parent, endsAtEl, starEl, criticEl, externalMain);
         }
       }
-      scheduleInfoWrapperCompensation(parent, stableInfoTop);
       return;
     }
     if (externalAllowed) {
@@ -871,7 +828,6 @@
         applyEndsAtPositionWithinLine(CFG, parent, endsAtEl, starEl, criticEl, externalMain);
       }
     }
-    scheduleInfoWrapperCompensation(parent, stableInfoTop);
   }
   // ============================================================
   // Core Link Processing
