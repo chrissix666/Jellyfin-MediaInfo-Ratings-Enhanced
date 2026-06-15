@@ -12,7 +12,7 @@
     // - "user": uses GM_xmlhttpRequest
     MODE: 'user', // basic | user
     // MDBList API key (required to query mdblist.com for ratings)
-    API_KEY: '',
+    API_KEY: 'w09o1apy8iwca2m7lx00v4nps',
     // Enable/disable debug logging (when true, extra logs will be printed to the browser console)
     DEBUG: false,
     // Polling triggers for detecting and processing newly inserted TMDB links in the page
@@ -54,7 +54,7 @@
     // - "critics_only": show only the critic rating
     // - "hide": hide both built-in ratings
     UI_JELLYFIN_DB_RATINGS_MODE: 'rating_only', // both | rating_only | critics_only | hide
-    // Disable ALL external ratings fetching/rendering from MDBList (keeps only Jellyfin built-in ratings & UI settings)
+    // Disable ALL external ratings fetching/rendering from MDBList (keeps only Jellyfin built-in ratings)
     UI_DEACTIVATE_JELLYFIN_EXTRA_RATINGS: false, // true | false
     // Move Jellyfin internal ratings (star/critic) into the extra row (second line) instead of the main row
     UI_INTERNAL_RATINGS_NEW_LINE_MOVE: true, // true | false
@@ -73,12 +73,12 @@
     // - "after_external": move to its own line after the external ratings line
     // - "same_external": move into the external ratings line (extra row)
     ENDING_AT_LINE_MODE: 'main', // main | after_main | after_external | same_external
-    // Replace Jellyfin internal DB critic icon with RT "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
+    // Replace Jellyfin indernal DB critic icon with "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
     UI_CRITICSRATING_ICON_FRESH: true, // true | false
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Replace Rotten Tomatoes external RT "Certified" icon (RT "Fresh" was already included in original script)
+    // Rotten Tomatoes "Certified" logic based on MDBList RT critics rating normalized to 0.0–10.0
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -110,18 +110,18 @@
     // - "critics_only": show only the critic rating
     // - "hide": hide both built-in ratings
     UI_JELLYFIN_DB_RATINGS_MODE: 'rating_only', // both | rating_only | critics_only | hide
-    // Disable ALL external ratings fetching/rendering from MDBList (keeps only Jellyfin built-in ratings & UI settings)
+    // Disable ALL external ratings fetching/rendering from MDBList (keeps only Jellyfin built-in ratings)
     UI_DEACTIVATE_JELLYFIN_EXTRA_RATINGS: false, // true | false
     // Move Jellyfin internal ratings (star/critic) into the extra row (second line) instead of the main row
     UI_INTERNAL_RATINGS_NEW_LINE_MOVE: true, // true | false
     // Render external MDBList ratings in the extra row (second line) instead of the main row
     UI_EXTERNAL_RATINGS_NEW_LINE: true, // true | false
-    // Replace Jellyfin internal DB critic icon with RT "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
+    // Replace Jellyfin internal DB critic icon with "Fresh" / "Certified" icons based on Jellyfin critic score (0.0–10.0)
     UI_CRITICSRATING_ICON_FRESH: true, // true | false
     UI_CRITICSRATING_ICON_FRESH_SCORE: 6.0,
     UI_CRITICSRATING_ICON_CERTIFIED: true, // true | false
     UI_CRITICSRATING_ICON_CERTIFIED_SCORE: 9.0,
-    // Replace Rotten Tomatoes external RT "Certified" icon (RT "Fresh" was already included in original script)
+    // Rotten Tomatoes "Certified" logic based on MDBList RT critics rating normalized to 0.0–10.0
     UI_RT_ICON_CERTIFIED: true, // true | false
     UI_RT_ICON_CERTIFIED_SCORE: 9.0,
     // Sources toggles + ids (each source has an internal id used for ordering + an enabled flag)
@@ -299,10 +299,128 @@
       el.style.order = '';
     }
   }
+  function findInfoWrapper(parent) {
+    return parent && parent.closest ? parent.closest('.infoWrapper') : null;
+  }
+
+  function getInfoColumnCompensationTargets(parent) {
+    const infoWrapper = findInfoWrapper(parent);
+    if (!infoWrapper) return [];
+    const targets = Array.from(infoWrapper.children).filter((el) => {
+      if (!el || !el.classList) return false;
+      if (el.classList.contains('detailImageContainer')) return false;
+      return (
+        el.classList.contains('nameContainer') ||
+        el.classList.contains('itemMiscInfo') ||
+        el.classList.contains('overview') ||
+        el.classList.contains('people')
+      );
+    });
+    if (!targets.length) {
+      return Array.from(infoWrapper.children).filter((el) => {
+        return el && el.classList && !el.classList.contains('detailImageContainer');
+      });
+    }
+
+    return targets;
+  }
+
+  function getInfoColumnAnchor(parent) {
+    const infoWrapper = findInfoWrapper(parent);
+    if (!infoWrapper) return null;
+
+    return (
+      infoWrapper.querySelector('.nameContainer') ||
+      infoWrapper.querySelector('.itemMiscInfo-primary') ||
+      getInfoColumnCompensationTargets(parent)[0] ||
+      null
+    );
+  }
+
+  function captureInfoColumnTop(parent) {
+    const anchor = getInfoColumnAnchor(parent);
+    if (!anchor) return null;
+    return anchor.getBoundingClientRect().top;
+  }
+
+  function resetInfoWrapperCompensation(parent) {
+    const targets = getInfoColumnCompensationTargets(parent);
+
+    targets.forEach((el) => {
+      if ('__mdblistOrigTransform' in el.dataset) {
+        el.style.transform = el.dataset.__mdblistOrigTransform;
+        delete el.dataset.__mdblistOrigTransform;
+      }
+
+      if ('__mdblistOrigTransformOrigin' in el.dataset) {
+        el.style.transformOrigin = el.dataset.__mdblistOrigTransformOrigin;
+        delete el.dataset.__mdblistOrigTransformOrigin;
+      }
+
+      if ('__mdblistOrigWillChange' in el.dataset) {
+        el.style.willChange = el.dataset.__mdblistOrigWillChange;
+        delete el.dataset.__mdblistOrigWillChange;
+      }
+    });
+  }
+
+  function applyInfoColumnCompensation(parent, shift) {
+    const targets = getInfoColumnCompensationTargets(parent);
+    if (!targets.length) return;
+
+    const roundedShift = Math.round(shift * 100) / 100;
+
+    targets.forEach((el) => {
+      if (!('__mdblistOrigTransform' in el.dataset)) {
+        el.dataset.__mdblistOrigTransform = el.style.transform || '';
+      }
+      if (!('__mdblistOrigTransformOrigin' in el.dataset)) {
+        el.dataset.__mdblistOrigTransformOrigin = el.style.transformOrigin || '';
+      }
+      if (!('__mdblistOrigWillChange' in el.dataset)) {
+        el.dataset.__mdblistOrigWillChange = el.style.willChange || '';
+      }
+
+      const orig = el.dataset.__mdblistOrigTransform || '';
+      el.style.transform = `${orig}${orig ? ' ' : ''}translateY(${roundedShift}px)`;
+      el.style.transformOrigin = 'top left';
+      el.style.willChange = 'transform';
+    });
+  }
+
+  function updateInfoWrapperCompensation(parent, wantedTop) {
+    if (wantedTop == null || !isFinite(wantedTop)) return;
+
+    const anchor = getInfoColumnAnchor(parent);
+    if (!anchor) return;
+
+    // First restore the original transform, then measure the real browser layout.
+    // This avoids guessing with "half a row" and instead pins the same visual top
+    // before and after the injected ratings line appears.
+    resetInfoWrapperCompensation(parent);
+
+    const currentTop = anchor.getBoundingClientRect().top;
+    const shift = wantedTop - currentTop;
+
+    if (Math.abs(shift) < 0.25) return;
+    applyInfoColumnCompensation(parent, shift);
+  }
+
+  function scheduleInfoWrapperCompensation(parent, wantedTop) {
+    const stableTop = wantedTop == null ? captureInfoColumnTop(parent) : wantedTop;
+
+    requestAnimationFrame(() => {
+      updateInfoWrapperCompensation(parent, stableTop);
+      requestAnimationFrame(() => updateInfoWrapperCompensation(parent, stableTop));
+      setTimeout(() => updateInfoWrapperCompensation(parent, stableTop), 80);
+      setTimeout(() => updateInfoWrapperCompensation(parent, stableTop), 250);
+    });
+  }
   // ============================================================
   // Cleanup Injected Elements
   // ============================================================
   function cleanupInjected(parent) {
+    resetInfoWrapperCompensation(parent);
     const rows = Array.from(parent.querySelectorAll('div.mdblist-extra-row,div.mdblist-ends-row'));
     parent.querySelectorAll('div.mdblist-rating-container').forEach((el) => {
       resetFlexOrder(el);
@@ -518,6 +636,9 @@
     return Math.max(1, Math.floor(raw));
   }
   function renderRatingsFromData(CFG, data, container) {
+    const parentForStabilize = container.closest ? container.closest('div.itemMiscInfo') : null;
+    const stableInfoTop = parentForStabilize ? captureInfoColumnTop(parentForStabilize) : null;
+
     if (!Array.isArray(data?.ratings)) return;
     while (container.firstChild) container.removeChild(container.firstChild);
     const items = [];
@@ -582,6 +703,8 @@
       span.style.verticalAlign = 'middle';
       container.appendChild(span);
     });
+
+    if (parentForStabilize) scheduleInfoWrapperCompensation(parentForStabilize, stableInfoTop);
   }
   function fetchRatings(CFG, apiType, tmdbId, container) {
     const key = makeCacheKey(apiType, tmdbId);
@@ -677,6 +800,7 @@
     }
   }
   function reconcile(CFG, parent, apiType, tmdbId, externalAllowed, supportsEndingAt) {
+    const stableInfoTop = captureInfoColumnTop(parent);
     const internalVisible = isAnyInternalVisible(CFG);
     cleanupInjected(parent);
     const { star: starEl, critic: criticEl } = getInternalEls(parent);
@@ -732,6 +856,7 @@
           applyEndsAtPositionWithinLine(CFG, parent, endsAtEl, starEl, criticEl, externalMain);
         }
       }
+      scheduleInfoWrapperCompensation(parent, stableInfoTop);
       return;
     }
     if (externalAllowed) {
@@ -746,6 +871,7 @@
         applyEndsAtPositionWithinLine(CFG, parent, endsAtEl, starEl, criticEl, externalMain);
       }
     }
+    scheduleInfoWrapperCompensation(parent, stableInfoTop);
   }
   // ============================================================
   // Core Link Processing
@@ -794,8 +920,4 @@
   scanAndProcessLinks();
   if (CONFIG_GLOBAL.TRIGGERS.pollMs > 0) setInterval(scanAndProcessLinks, CONFIG_GLOBAL.TRIGGERS.pollMs);
   log('Boot complete.');
-
 })();
-
-
-
