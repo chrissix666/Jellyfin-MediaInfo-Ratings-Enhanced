@@ -3,6 +3,23 @@
    // ============================================================
   // CONFIG START
   // ============================================================
+  // ============================================================
+  // ACCESS CONTROL
+  // ============================================================
+  // Only runs the script on the OS platforms listed below.
+  // Values: 'windows' | 'android' | 'ios' | 'macos' | 'linux' | 'chromeos'
+  const ALLOWED_PLATFORMS = ['windows'];
+  function detectPlatform() {
+    const ua = (navigator.userAgent || '').toLowerCase();
+    if (ua.includes('android')) return 'android';
+    if (ua.includes('windows')) return 'windows';
+    if (ua.includes('iphone') || ua.includes('ipad')) return 'ios';
+    if (ua.includes('mac os')) return 'macos';
+    if (ua.includes('cros')) return 'chromeos';
+    if (ua.includes('linux')) return 'linux';
+    return 'unknown';
+  }
+  if (!ALLOWED_PLATFORMS.includes(detectPlatform())) return;
  // ============================================================
   // CONFIG GLOBAL
   // ============================================================
