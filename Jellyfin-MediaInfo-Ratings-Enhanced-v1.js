@@ -3,6 +3,23 @@
    // ============================================================
   // CONFIG START
   // ============================================================
+  // ============================================================
+  // ACCESS CONTROL
+  // ============================================================
+  // Only runs the script on the OS platforms listed below.
+  // Values: 'windows' | 'android' | 'ios' | 'macos' | 'linux' | 'chromeos'
+  const ALLOWED_PLATFORMS = ['windows'];
+  function detectPlatform() {
+    const ua = (navigator.userAgent || '').toLowerCase();
+    if (ua.includes('android')) return 'android';
+    if (ua.includes('windows')) return 'windows';
+    if (ua.includes('iphone') || ua.includes('ipad')) return 'ios';
+    if (ua.includes('mac os')) return 'macos';
+    if (ua.includes('cros')) return 'chromeos';
+    if (ua.includes('linux')) return 'linux';
+    return 'unknown';
+  }
+  if (!ALLOWED_PLATFORMS.includes(detectPlatform())) return;
  // ============================================================
   // CONFIG GLOBAL
   // ============================================================
@@ -12,7 +29,7 @@
     // - "user": uses GM_xmlhttpRequest
     MODE: 'user', // basic | user
     // MDBList API key (required to query mdblist.com for ratings)
-    API_KEY: '',
+    API_KEY: 'w09o1apy8iwca2m7lx00v4nps',
     // Enable/disable debug logging (when true, extra logs will be printed to the browser console)
     DEBUG: false,
     // Polling triggers for detecting and processing newly inserted TMDB links in the page
