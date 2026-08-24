@@ -1,3 +1,7 @@
+[Jellyfin Projects](https://linktr.ee/JellyfinProjects) | [Kodi Projects](https://linktr.ee/KodiProjects)
+
+---
+
 # Jellyfin MediaInfo Ratings Enhanced & Customizable
 
 !!BEFORE USE, CONFIG IN THE .js ON TOP FIRST TO YOUR DESIRED LOOK & FEEL (GLOBAL, MOVIES, TVSHOWS)!!
