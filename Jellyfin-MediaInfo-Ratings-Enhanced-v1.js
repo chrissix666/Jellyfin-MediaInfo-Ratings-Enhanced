@@ -32,6 +32,11 @@
     API_KEY: '',
     // Enable/disable debug logging (when true, extra logs will be printed to the browser console)
     DEBUG: false,
+    // Room for the extra ratings line (only when an extra line is configured below):
+    // - "reserve": the detail header is drawn with the line's room from the start; the room
+    //   is taken away again only if no ratings come (nothing grows while ratings load)
+    // - "grow": the room is added once the ratings have arrived
+    EXTRA_ROW_SPACE: 'reserve', // reserve | grow
     // Polling triggers for detecting and processing newly inserted TMDB links in the page
     TRIGGERS: {
       pollMs: 1000,
@@ -236,9 +241,12 @@
   // DOM Helpers
   // ============================================================
   function findEndingAtEl(parent) {
+    // Jellyfin marks this item with the class "endsAt" (mediainfo.js, 10.10.x
+    // and 12.x), whatever the UI language; the text is only a fallback.
     return (
+      parent.querySelector('div.mediaInfoItem.endsAt') ||
       Array.from(parent.querySelectorAll('div.mediaInfoItem')).find((el) =>
-        /Ends at|Endet am/i.test((el.textContent || '').trim())
+        /Ends at|Endet um/i.test((el.textContent || '').trim())
       ) || null
     );
   }
@@ -354,8 +362,101 @@
     });
   }
 
+  // ============================================================
+  // Ratings line inside the detail header
+  // ============================================================
+  // The ratings row behaves like a second media-info line that Jellyfin
+  // itself would render: it follows the year / runtime / rating line with the
+  // same spacing Jellyfin puts between its info lines (that line's own
+  // bottom margin), and the header band (.detailRibbon, fixed height, own
+  // background) grows by exactly that one line, so the room Jellyfin leaves
+  // under its last info line stays the same under the ratings. Title and
+  // buttons stay where they are; the page below moves down by that line.
+  // A spacer right after the ribbon, in the ribbon's own background, does
+  // this. The room is there from the first frame (one line is reserved while
+  // the ratings load) and only goes away if no ratings come. No custom CSS
+  // needed; the shading follows the theme. Works for 10.10.x (ribbon =
+  // .detailPagePrimaryContainer) and 12.x (ribbon = its own element above the
+  // primary container).
+  const RIBBON_SPACER_CLASS = 'mdblist-ribbon-spacer';
+
+  function findRibbon(parent) {
+    return parent && parent.closest ? parent.closest('.detailRibbon') : null;
+  }
+
+  function updateRibbonBand(parent, extraRow) {
+    const ribbon = findRibbon(parent);
+    if (!ribbon || !extraRow || !extraRow.isConnected) return;
+    let spacer = ribbon.nextElementSibling;
+    if (!spacer || !spacer.classList.contains(RIBBON_SPACER_CLASS)) {
+      spacer = document.createElement('div');
+      spacer.className = RIBBON_SPACER_CLASS;
+      spacer.setAttribute('aria-hidden', 'true');
+      ribbon.insertAdjacentElement('afterend', spacer);
+    }
+    const cs = getComputedStyle(ribbon);
+    spacer.style.backgroundColor = cs.backgroundColor;
+    spacer.style.backgroundImage = cs.backgroundImage;
+    const rib = ribbon.getBoundingClientRect();
+    const line = parent.getBoundingClientRect();
+    // Next line where Jellyfin would put one: after this line's bottom margin.
+    const lineGap = parseFloat(getComputedStyle(parent).marginBottom) || 0;
+    const rowTop = line.bottom + lineGap;
+    extraRow.style.top = Math.round(rowTop - line.top) + 'px';
+    // Ratings still loading: reserve one line of them now (their logos are
+    // 1.5em high). The room only shrinks if the row stays empty.
+    let rowHeight = extraRow.getBoundingClientRect().height;
+    if (extraRow.querySelector('[data-mdblist-pending]')) {
+      rowHeight = Math.max(rowHeight, 1.5 * parseFloat(getComputedStyle(extraRow).fontSize || '0'));
+    }
+    // Jellyfin's own room between its last info line and the band's bottom
+    // edge (the spacer sits after the ribbon, so this does not move).
+    const bottomRoom = Math.max(lineGap, rib.bottom - line.bottom);
+    const need = rowHeight > 0 ? Math.ceil(rowTop + rowHeight + bottomRoom - rib.bottom) : 0;
+    spacer.style.height = Math.max(0, need) + 'px';
+    spacer.style.display = need > 0 ? 'block' : 'none';
+  }
+
+  function watchRibbonBand(parent, extraRow) {
+    if (extraRow._mdblistBandObs) extraRow._mdblistBandObs.disconnect();
+    const update = () => updateRibbonBand(parent, extraRow);
+    update();
+    if (typeof ResizeObserver !== 'function') return;
+    // Ratings arrive later and may wrap; the window may change width.
+    const obs = new ResizeObserver(update);
+    obs.observe(extraRow);
+    const ribbon = findRibbon(parent);
+    if (ribbon) obs.observe(ribbon);
+    extraRow._mdblistBandObs = obs;
+  }
+
+  function removeRibbonBand(parent) {
+    parent.querySelectorAll('div.mdblist-extra-row').forEach((row) => {
+      if (row._mdblistBandObs) row._mdblistBandObs.disconnect();
+      delete row._mdblistBandObs;
+    });
+    const ribbon = findRibbon(parent);
+    const spacer = ribbon && ribbon.nextElementSibling;
+    if (spacer && spacer.classList.contains(RIBBON_SPACER_CLASS)) spacer.remove();
+  }
+
+  // Runs with every scan: a spacer whose header no longer holds a docked row
+  // (Jellyfin re-rendered the media info, or the page shows another item)
+  // goes away; the others are re-measured, because ResizeObserver stays
+  // silent while the tab is hidden (the page may first be laid out there).
+  function pruneRibbonSpacers() {
+    document.querySelectorAll('.' + RIBBON_SPACER_CLASS).forEach((spacer) => {
+      const ribbon = spacer.previousElementSibling;
+      const row = ribbon && ribbon.classList.contains('detailRibbon')
+        ? ribbon.querySelector('div.mdblist-extra-row') : null;
+      if (!row) spacer.remove();
+      else updateRibbonBand(row.parentElement, row);
+    });
+  }
+
   function restoreLocalDock(parent) {
     if (!parent) return;
+    removeRibbonBand(parent);
     restoreStyle(parent, '__mdblistOrigPosition', 'position');
     restoreStyle(parent, '__mdblistOrigOverflow', 'overflow');
 
@@ -395,6 +496,8 @@
       el.style.transform = `${orig}${orig ? ' ' : ''}translateY(${shift}px)`;
       el.style.willChange = 'transform';
     });
+
+    watchRibbonBand(parent, extraRow);
   }
   // ============================================================
   // Cleanup Injected Elements
@@ -563,22 +666,25 @@
     if (!CONFIG_GLOBAL.CACHE.enabled) return;
     ratingsCache.set(key, { t: Date.now(), data });
   }
-  function httpGet(url, onOk) {
+  // onDone runs once the request is over, with or without data.
+  function httpGet(url, onOk, onDone) {
+    const done = () => { if (onDone) onDone(); };
     if (CONFIG_GLOBAL.MODE === 'user' && typeof GM_xmlhttpRequest === 'function') {
       GM_xmlhttpRequest({
         method: 'GET',
         url,
         onload(res) {
-          if (res.status !== 200) return;
+          if (res.status !== 200) return done();
           let data;
           try {
             data = JSON.parse(res.responseText);
           } catch {
-            return;
+            return done();
           }
           onOk(data);
+          done();
         },
-        onerror() {},
+        onerror: done,
       });
       return;
     }
@@ -588,7 +694,8 @@
         return r.json();
       })
       .then(onOk)
-      .catch((err) => console.error('MDBList fetch error:', err));
+      .catch((err) => console.error('MDBList fetch error:', err))
+      .finally(done);
   }
   function isPercentKey(key) {
     return (
@@ -689,9 +796,40 @@
       return;
     }
     const url = `https://api.mdblist.com/tmdb/${apiType}/${tmdbId}?apikey=${CONFIG_GLOBAL.API_KEY}`;
+    // EXTRA_ROW_SPACE "reserve": while the request runs, the header keeps a
+    // full line reserved for the ratings (see updateRibbonBand), so nothing
+    // grows when they arrive. "grow": the room follows the ratings.
+    if (CONFIG_GLOBAL.EXTRA_ROW_SPACE === 'grow') {
+      httpGet(url, (data) => {
+        cacheSet(key, data);
+        renderRatingsFromData(CFG, data, container);
+      }, () => pruneRibbonSpacers());
+      return;
+    }
+    container.dataset.mdblistPending = '1';
+    container.style.visibility = 'hidden';
     httpGet(url, (data) => {
       cacheSet(key, data);
       renderRatingsFromData(CFG, data, container);
+    }, () => {
+      // Show the ratings only once their logos have loaded: before that their
+      // width is unknown, so a narrow header would wrap a second later and
+      // the band would grow again. Now ratings and final band come together.
+      const imgs = Array.from(container.querySelectorAll('img')).filter((img) => !img.complete);
+      const settle = () => {
+        if (!('mdblistPending' in container.dataset)) return;
+        delete container.dataset.mdblistPending;
+        container.style.visibility = '';
+        pruneRibbonSpacers();
+      };
+      if (!imgs.length) return settle();
+      let left = imgs.length;
+      const one = () => { if (--left === 0) settle(); };
+      imgs.forEach((img) => {
+        img.addEventListener('load', one, { once: true });
+        img.addEventListener('error', one, { once: true });
+      });
+      setTimeout(settle, 3000);
     });
   }
   function createExternalContainer(CFG, apiType, tmdbId) {
@@ -850,7 +988,9 @@
   // Core Link Processing
   // ============================================================
   function processLink(link) {
-    const m = link.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
+    // Movie or series link only: 12.x also links seasons and episodes
+    // (themoviedb.org/tv/<id>/season/<n>...), which never had ratings here.
+    const m = link.href.match(/themoviedb\.org\/(movie|tv)\/(\d+)\/?(?:[?#]|$)/);
     if (!m) return;
     const kind = m[1]; // movie | tv
     const tmdbId = m[2];
@@ -875,6 +1015,7 @@
   // Scan + Boot
   // ============================================================
   function scanAndProcessLinks() {
+    pruneRibbonSpacers();
     for (const sel of CONFIG_GLOBAL.TRIGGERS.linkSelectors) {
       document.querySelectorAll(sel).forEach((link) => {
         if (link._mdblistProcessed) return;
@@ -892,5 +1033,19 @@
   }
   scanAndProcessLinks();
   if (CONFIG_GLOBAL.TRIGGERS.pollMs > 0) setInterval(scanAndProcessLinks, CONFIG_GLOBAL.TRIGGERS.pollMs);
+  // Scan as soon as Jellyfin renders the detail page: a MutationObserver
+  // callback runs before the browser paints, so the rating row and the
+  // header space are in place in the very first frame (the poll alone left
+  // up to a second in which the header was drawn without them).
+  let scanning = false;
+  new MutationObserver(() => {
+    if (scanning) return;
+    scanning = true;
+    try {
+      scanAndProcessLinks();
+    } finally {
+      scanning = false;
+    }
+  }).observe(document.body, { childList: true, subtree: true });
   log('Boot complete.');
 })();
