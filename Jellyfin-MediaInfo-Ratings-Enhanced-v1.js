@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+
    // ============================================================
   // CONFIG START
   // ============================================================
@@ -25,9 +26,11 @@
   // ============================================================
   const CONFIG_GLOBAL = {
     // Network mode used for all API calls:
-    // - "basic": uses window.fetch()
-    // - "user": uses GM_xmlhttpRequest
-    MODE: 'user', // basic | user
+    // - "basic": uses window.fetch() (default; what the Injector path always used)
+    // - "user": uses GM_xmlhttpRequest - only in a userscript manager that grants it
+    //   (@grant GM_xmlhttpRequest + @connect api.mdblist.com); this file has no
+    //   metadata block, so without one it falls back to fetch() with a warning
+    MODE: 'basic', // basic | user
     // MDBList API key (required to query mdblist.com for ratings)
     API_KEY: '',
     // Enable/disable debug logging (when true, extra logs will be printed to the browser console)
@@ -42,7 +45,8 @@
       pollMs: 1000,
       linkSelectors: ['a.emby-button[href*="themoviedb.org/"]', 'a[href*="themoviedb.org/"]'],
     },
-    // Response cache settings (in-memory; reduces API calls and speeds up repeated views)
+    // Response cache settings (in memory, and in localStorage so other tabs and reloads
+    // reuse an answer within the same TTL; reduces API calls and speeds up repeated views)
     CACHE: {
       enabled: true,
       ttlMinutes: 360,
@@ -384,6 +388,35 @@
     return parent && parent.closest ? parent.closest('.detailRibbon') : null;
   }
 
+  // ArtworkPlus 3D case, layer "Behind the text" (M-C3). ArtworkPlus moves the
+  // page's tints onto a ::before at z-index -2, below its case canvas (-1), by
+  // marking each tint element with this attribute and the tint in this custom
+  // property (Jellyfin-ArtworkPlus-Posters-v1.js markTints + the
+  // '[data-artworkplus-threejs-tint]' rule). It marks once, when the case
+  // mounts; a spacer made or grown later is not marked and would paint its
+  // copied tint in normal flow, i.e. above the case. So the spacer carries the
+  // same mark as its ribbon and ArtworkPlus's own rule puts it on the same
+  // layer. A mark ArtworkPlus set on the spacer itself is left alone; ours goes
+  // when the ribbon loses its mark (case removed). Without ArtworkPlus the
+  // ribbon never has the attribute and nothing changes.
+  const AP_TINT_ATTR = 'data-artworkplus-threejs-tint';
+  const AP_TINT_VAR = '--artworkplus-threejs-tint';
+  const TINT_MIRROR_ATTR = 'data-mdblist-tint-mirror';
+
+  function mirrorCaseTint(ribbon, spacer) {
+    if (ribbon.hasAttribute(AP_TINT_ATTR)) {
+      if (spacer.hasAttribute(AP_TINT_ATTR) && !spacer.hasAttribute(TINT_MIRROR_ATTR)) return;
+      const tint = ribbon.style.getPropertyValue(AP_TINT_VAR);
+      if (tint) spacer.style.setProperty(AP_TINT_VAR, tint);
+      spacer.setAttribute(TINT_MIRROR_ATTR, '');
+      spacer.setAttribute(AP_TINT_ATTR, '');
+    } else if (spacer.hasAttribute(TINT_MIRROR_ATTR)) {
+      spacer.removeAttribute(AP_TINT_ATTR);
+      spacer.removeAttribute(TINT_MIRROR_ATTR);
+      spacer.style.removeProperty(AP_TINT_VAR);
+    }
+  }
+
   function updateRibbonBand(parent, extraRow) {
     const ribbon = findRibbon(parent);
     if (!ribbon || !extraRow || !extraRow.isConnected) return;
@@ -397,6 +430,7 @@
     const cs = getComputedStyle(ribbon);
     spacer.style.backgroundColor = cs.backgroundColor;
     spacer.style.backgroundImage = cs.backgroundImage;
+    mirrorCaseTint(ribbon, spacer);
     const rib = ribbon.getBoundingClientRect();
     const line = parent.getBoundingClientRect();
     // Next line where Jellyfin would put one: after this line's bottom margin.
@@ -417,8 +451,24 @@
     spacer.style.display = need > 0 ? 'block' : 'none';
   }
 
+  // Every band observer, so one whose row Jellyfin threw away (it refilled the
+  // media info line) is disconnected by the next prune instead of watching
+  // the ribbon for the rest of the page's life.
+  const bandObservers = new Set();
+
+  function disconnectBand(obs) {
+    obs.disconnect();
+    if (obs._mdblistTintObs) obs._mdblistTintObs.disconnect();
+    bandObservers.delete(obs);
+  }
+
+  function dropBandObserver(row) {
+    if (row._mdblistBandObs) disconnectBand(row._mdblistBandObs);
+    delete row._mdblistBandObs;
+  }
+
   function watchRibbonBand(parent, extraRow) {
-    if (extraRow._mdblistBandObs) extraRow._mdblistBandObs.disconnect();
+    dropBandObserver(extraRow);
     const update = () => updateRibbonBand(parent, extraRow);
     update();
     if (typeof ResizeObserver !== 'function') return;
@@ -427,14 +477,19 @@
     obs.observe(extraRow);
     const ribbon = findRibbon(parent);
     if (ribbon) obs.observe(ribbon);
+    // The case mounts (or goes) after the band was drawn: follow the ribbon's
+    // ArtworkPlus tint mark at once instead of at the next poll (M-C3).
+    if (ribbon && typeof MutationObserver === 'function') {
+      obs._mdblistTintObs = new MutationObserver(update);
+      obs._mdblistTintObs.observe(ribbon, { attributes: true, attributeFilter: [AP_TINT_ATTR] });
+    }
+    obs._mdblistRow = extraRow;
     extraRow._mdblistBandObs = obs;
+    bandObservers.add(obs);
   }
 
   function removeRibbonBand(parent) {
-    parent.querySelectorAll('div.mdblist-extra-row').forEach((row) => {
-      if (row._mdblistBandObs) row._mdblistBandObs.disconnect();
-      delete row._mdblistBandObs;
-    });
+    parent.querySelectorAll('div.mdblist-extra-row').forEach(dropBandObserver);
     const ribbon = findRibbon(parent);
     const spacer = ribbon && ribbon.nextElementSibling;
     if (spacer && spacer.classList.contains(RIBBON_SPACER_CLASS)) spacer.remove();
@@ -444,13 +499,18 @@
   // (Jellyfin re-rendered the media info, or the page shows another item)
   // goes away; the others are re-measured, because ResizeObserver stays
   // silent while the tab is hidden (the page may first be laid out there).
+  // A cached detail view that Jellyfin keeps hidden has no layout: it is
+  // not measured (its ResizeObserver re-measures it when it is shown again).
   function pruneRibbonSpacers() {
+    bandObservers.forEach((obs) => {
+      if (!obs._mdblistRow || !obs._mdblistRow.isConnected) disconnectBand(obs);
+    });
     document.querySelectorAll('.' + RIBBON_SPACER_CLASS).forEach((spacer) => {
       const ribbon = spacer.previousElementSibling;
       const row = ribbon && ribbon.classList.contains('detailRibbon')
         ? ribbon.querySelector('div.mdblist-extra-row') : null;
       if (!row) spacer.remove();
-      else updateRibbonBand(row.parentElement, row);
+      else if (ribbon.getClientRects().length > 0) updateRibbonBand(row.parentElement, row);
     });
   }
 
@@ -466,8 +526,48 @@
     });
   }
 
+  // The header is a fixed-height flex band only in the desktop layout
+  // (.layout-desktop .detailRibbon, librarybrowser.scss 10.10.7:780-814,
+  // 12.1:752-781). In the mobile and tv layouts it is a block that grows with
+  // its content and the buttons follow below the info line, so a docked row
+  // would cover them: there the row stays in flow. No ribbon (foreign skin):
+  // dock as before.
+  function isBandLayout(parent) {
+    const ribbon = findRibbon(parent);
+    if (!ribbon) return true;
+    return (getComputedStyle(ribbon).display || '').indexOf('flex') >= 0;
+  }
+
+  // In-flow row (mobile/tv): centred like Jellyfin's own info line; while the
+  // ratings load it keeps one line (1.5em, the logo height) reserved, and it
+  // takes no room at all when it ends up empty.
+  function rowHasContent(row) {
+    const inner = row.firstElementChild;
+    if (!inner) return false;
+    return Array.from(inner.children).some((el) => {
+      if (el.style.display === 'none') return false;
+      if (!el.classList.contains('mdblist-rating-container')) return true;
+      return el.childElementCount > 0 || 'mdblistPending' in el.dataset;
+    });
+  }
+
+  function refreshFlowRow(row) {
+    if (!row || row.classList.contains('mdblist-local-docked-row')) return;
+    const pending = !!row.querySelector('[data-mdblist-pending]');
+    row.style.minHeight = pending ? '1.5em' : '';
+    row.style.marginTop = pending || rowHasContent(row) ? '6px' : '0';
+  }
+
+  function refreshFlowRowOf(el) {
+    refreshFlowRow(el && el.closest ? el.closest('div.mdblist-extra-row') : null);
+  }
+
   function applyLocalDock(parent, extraRow) {
     if (!parent || !extraRow) return;
+    if (!isBandLayout(parent)) {
+      extraRow.style.justifyContent = getComputedStyle(parent).justifyContent || '';
+      return;
+    }
 
     // The injected row must not add height to itemMiscInfo; otherwise Jellyfin recenters
     // the whole header area and everything above creeps upward.
@@ -651,51 +751,185 @@
   function makeCacheKey(type, tmdbId) {
     return `${type}:${tmdbId}`;
   }
+  function cacheTtlMs() {
+    return Math.max(0, CONFIG_GLOBAL.CACHE.ttlMinutes) * 60 * 1000;
+  }
+  function isExpired(e) {
+    const ttlMs = cacheTtlMs();
+    return !e || typeof e.t !== 'number' || (ttlMs > 0 && Date.now() - e.t > ttlMs);
+  }
+  // Second level shared by all tabs of this origin (M-C2): one MDBList key serves
+  // every user and device, so an answer one tab already has is not asked for
+  // again. Same TTL as the memory cache. Every access is guarded: storage can be
+  // blocked (private mode, policy) or full - then only the memory cache is used.
+  const LS_PREFIX = 'mdblistRatings:v1:';
+  function lsGet(key) {
+    try {
+      const raw = localStorage.getItem(LS_PREFIX + key);
+      if (!raw) return null;
+      const e = JSON.parse(raw);
+      if (isExpired(e)) {
+        localStorage.removeItem(LS_PREFIX + key);
+        return null;
+      }
+      return e;
+    } catch (e) {
+      return null;
+    }
+  }
+  // Removes expired entries (all of ours when `all`), e.g. when storage is full.
+  function lsPrune(all) {
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(LS_PREFIX) === 0) keys.push(k);
+      }
+      keys.forEach((k) => {
+        let drop = all;
+        if (!drop) {
+          try {
+            drop = isExpired(JSON.parse(localStorage.getItem(k) || 'null'));
+          } catch (e) {
+            drop = true;
+          }
+        }
+        if (drop) localStorage.removeItem(k);
+      });
+    } catch (e) {
+      /* storage not available */
+    }
+  }
+  function lsSet(key, entry) {
+    let text;
+    try {
+      text = JSON.stringify(entry);
+    } catch (e) {
+      return;
+    }
+    try {
+      localStorage.setItem(LS_PREFIX + key, text);
+      return;
+    } catch (e) {
+      /* full or blocked: make room below */
+    }
+    lsPrune(false);
+    try {
+      localStorage.setItem(LS_PREFIX + key, text);
+      return;
+    } catch (e) {
+      /* still full */
+    }
+    lsPrune(true);
+    try {
+      localStorage.setItem(LS_PREFIX + key, text);
+    } catch (e) {
+      /* give up: memory cache only */
+    }
+  }
   function cacheGet(key) {
     if (!CONFIG_GLOBAL.CACHE.enabled) return null;
-    const e = ratingsCache.get(key);
-    if (!e) return null;
-    const ttlMs = Math.max(0, CONFIG_GLOBAL.CACHE.ttlMinutes) * 60 * 1000;
-    if (ttlMs > 0 && Date.now() - e.t > ttlMs) {
+    let e = ratingsCache.get(key);
+    if (e && isExpired(e)) {
       ratingsCache.delete(key);
-      return null;
+      e = null;
+    }
+    if (!e) {
+      e = lsGet(key);
+      if (!e) return null;
+      ratingsCache.set(key, e);
     }
     return e.data;
   }
   function cacheSet(key, data) {
     if (!CONFIG_GLOBAL.CACHE.enabled) return;
-    ratingsCache.set(key, { t: Date.now(), data });
+    const e = { t: Date.now(), data };
+    ratingsCache.set(key, e);
+    lsSet(key, e);
   }
-  // onDone runs once the request is over, with or without data.
+  // A request that hangs must not keep the reserved line forever.
+  const HTTP_TIMEOUT_MS = 10000;
+  // onDone runs exactly once when the request is over, with or without data
+  // (also after a timeout, an abort or an error inside onOk).
   function httpGet(url, onOk, onDone) {
-    const done = () => { if (onDone) onDone(); };
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      if (onDone) onDone();
+    };
     if (CONFIG_GLOBAL.MODE === 'user' && typeof GM_xmlhttpRequest === 'function') {
       GM_xmlhttpRequest({
         method: 'GET',
         url,
+        timeout: HTTP_TIMEOUT_MS,
         onload(res) {
           if (res.status !== 200) return done();
           let data;
           try {
             data = JSON.parse(res.responseText);
-          } catch {
+          } catch (e) {
             return done();
           }
-          onOk(data);
+          try {
+            onOk(data);
+          } catch (e) {
+            warn('Error rendering ratings:', e);
+          }
           done();
         },
         onerror: done,
+        ontimeout: done,
+        onabort: done,
       });
       return;
     }
-    fetch(url)
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => {
+      if (ctrl) ctrl.abort();
+      done();
+    }, HTTP_TIMEOUT_MS);
+    fetch(url, ctrl ? { signal: ctrl.signal } : undefined)
       .then((r) => {
         if (!r.ok) throw new Error('Network response was not ok');
         return r.json();
       })
-      .then(onOk)
+      .then((data) => {
+        if (!finished) onOk(data);
+      })
       .catch((err) => console.error('MDBList fetch error:', err))
-      .finally(done);
+      .finally(() => {
+        clearTimeout(timer);
+        done();
+      });
+  }
+  // One request per item at a time: a re-render while the request is still
+  // running (10.10.x reload paths, 12.x version switch) joins it instead of
+  // sending a second identical one (all users share one MDBList quota).
+  const ratingsInflight = new Map();
+  function requestRatings(key, url, onOk, onDone) {
+    const waiting = ratingsInflight.get(key);
+    if (waiting) {
+      waiting.push({ onOk, onDone });
+      return;
+    }
+    const list = [{ onOk, onDone }];
+    ratingsInflight.set(key, list);
+    httpGet(url, (data) => {
+      cacheSet(key, data);
+      list.forEach((w) => {
+        try {
+          w.onOk(data);
+        } catch (e) {
+          warn('Error rendering ratings:', e);
+        }
+      });
+    }, () => {
+      ratingsInflight.delete(key);
+      list.forEach((w) => {
+        if (w.onDone) w.onDone();
+      });
+    });
   }
   function isPercentKey(key) {
     return (
@@ -723,7 +957,7 @@
     return Math.max(1, Math.floor(raw));
   }
   function renderRatingsFromData(CFG, data, container) {
-    if (!Array.isArray(data?.ratings)) return;
+    if (!data || !Array.isArray(data.ratings)) return;
     while (container.firstChild) container.removeChild(container.firstChild);
     const items = [];
     data.ratings.forEach((r) => {
@@ -800,16 +1034,17 @@
     // full line reserved for the ratings (see updateRibbonBand), so nothing
     // grows when they arrive. "grow": the room follows the ratings.
     if (CONFIG_GLOBAL.EXTRA_ROW_SPACE === 'grow') {
-      httpGet(url, (data) => {
-        cacheSet(key, data);
+      requestRatings(key, url, (data) => {
         renderRatingsFromData(CFG, data, container);
-      }, () => pruneRibbonSpacers());
+      }, () => {
+        pruneRibbonSpacers();
+        refreshFlowRowOf(container);
+      });
       return;
     }
     container.dataset.mdblistPending = '1';
     container.style.visibility = 'hidden';
-    httpGet(url, (data) => {
-      cacheSet(key, data);
+    requestRatings(key, url, (data) => {
       renderRatingsFromData(CFG, data, container);
     }, () => {
       // Show the ratings only once their logos have loaded: before that their
@@ -821,6 +1056,7 @@
         delete container.dataset.mdblistPending;
         container.style.visibility = '';
         pruneRibbonSpacers();
+        refreshFlowRowOf(container);
       };
       if (!imgs.length) return settle();
       let left = imgs.length;
@@ -900,6 +1136,8 @@
     const disp = getComputedStyle(parent).display || '';
     const isFlex = disp.includes('flex');
     if (isFlex) setFlexOrder(endsRow, whereOrder);
+    // Mobile/tv header: centred like the info line (desktop unchanged).
+    if (!isBandLayout(parent)) endsRow.style.justifyContent = getComputedStyle(parent).justifyContent || '';
     parent.appendChild(endsRow);
     return built;
   }
@@ -913,7 +1151,30 @@
       extraInner.insertBefore(endsAtEl, externalExtraEl);
     }
   }
+  // Hidden marker as the first child of the media info line (first, so that
+  // Jellyfin's .mediaInfoItem:last-child margin rule is not affected).
+  // 10.10.x refills that line on a version switch (updateMiscInfo,
+  // itemDetails/index.js:2132-2139) but keeps the links; a line without the
+  // marker is redone by the next scan.
+  const MARKER_CLASS = '__mdblist_marker';
+  function hasMarker(parent) {
+    return Array.from(parent.children).some((el) => el.classList.contains(MARKER_CLASS));
+  }
   function reconcile(CFG, parent, apiType, tmdbId, externalAllowed, supportsEndingAt) {
+    try {
+      reconcileRows(CFG, parent, apiType, tmdbId, externalAllowed, supportsEndingAt);
+    } finally {
+      // Set even after an error, so a failing line is not redone every scan.
+      if (!hasMarker(parent)) {
+        const marker = document.createElement('span');
+        marker.className = MARKER_CLASS;
+        marker.style.display = 'none';
+        parent.insertBefore(marker, parent.firstChild);
+      }
+      refreshFlowRow(parent.querySelector('div.mdblist-extra-row'));
+    }
+  }
+  function reconcileRows(CFG, parent, apiType, tmdbId, externalAllowed, supportsEndingAt) {
     const internalVisible = isAnyInternalVisible(CFG);
     cleanupInjected(parent);
     const { star: starEl, critic: criticEl } = getInternalEls(parent);
@@ -1002,6 +1263,7 @@
     const supportsEndingAt = !isShow;
     const parent = chooseParentNearLink(link);
     if (!parent) return;
+    link._mdblistParent = parent;
     const externalAllowed = shouldLoadExternalRatings(CFG);
     const injectKey = `${apiType}:${tmdbId}`;
     if (parent.dataset.mdblistInjected === injectKey) {
@@ -1018,7 +1280,11 @@
     pruneRibbonSpacers();
     for (const sel of CONFIG_GLOBAL.TRIGGERS.linkSelectors) {
       document.querySelectorAll(sel).forEach((link) => {
-        if (link._mdblistProcessed) return;
+        if (link._mdblistProcessed) {
+          // Done once; redo only when Jellyfin refilled its line (marker gone).
+          const p = link._mdblistParent;
+          if (!p || !p.isConnected || hasMarker(p)) return;
+        }
         link._mdblistProcessed = true;
         try {
           processLink(link);
@@ -1031,21 +1297,37 @@
   if (CONFIG_GLOBAL.MODE === 'user' && typeof GM_xmlhttpRequest !== 'function') {
     warn('MODE=user but GM_xmlhttpRequest is missing; falling back to fetch().');
   }
+  // Expired shared cache entries of earlier visits go once per page load (M-C2).
+  if (CONFIG_GLOBAL.CACHE.enabled) lsPrune(false);
   scanAndProcessLinks();
   if (CONFIG_GLOBAL.TRIGGERS.pollMs > 0) setInterval(scanAndProcessLinks, CONFIG_GLOBAL.TRIGGERS.pollMs);
   // Scan as soon as Jellyfin renders the detail page: a MutationObserver
   // callback runs before the browser paints, so the rating row and the
   // header space are in place in the very first frame (the poll alone left
   // up to a second in which the header was drawn without them).
-  let scanning = false;
-  new MutationObserver(() => {
-    if (scanning) return;
-    scanning = true;
-    try {
-      scanAndProcessLinks();
-    } finally {
-      scanning = false;
+  // Only changes that matter start a scan: a TMDb link appears, or a ratings
+  // row is removed (Jellyfin refilled the media info line: the band shrinks
+  // and the line is redone in the same frame). Everything else (clock,
+  // "Ends at" refresh, lazy images, other pages) is left to the poll.
+  const LINK_SELECTOR = CONFIG_GLOBAL.TRIGGERS.linkSelectors.join(',');
+  function nodeHas(node, sel) {
+    if (!node || node.nodeType !== 1) return false;
+    return node.matches(sel) || !!node.querySelector(sel);
+  }
+  function mutationsMatter(records) {
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      for (let j = 0; j < r.addedNodes.length; j++) {
+        if (nodeHas(r.addedNodes[j], LINK_SELECTOR)) return true;
+      }
+      for (let j = 0; j < r.removedNodes.length; j++) {
+        if (nodeHas(r.removedNodes[j], 'div.mdblist-extra-row')) return true;
+      }
     }
+    return false;
+  }
+  new MutationObserver((records) => {
+    if (mutationsMatter(records)) scanAndProcessLinks();
   }).observe(document.body, { childList: true, subtree: true });
   log('Boot complete.');
 })();
