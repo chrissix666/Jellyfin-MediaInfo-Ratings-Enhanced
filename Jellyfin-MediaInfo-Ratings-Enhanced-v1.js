@@ -21,6 +21,21 @@
     return 'unknown';
   }
   if (!ALLOWED_PLATFORMS.includes(detectPlatform())) return;
+
+  // One copy per page, also when the Essentials plugin and the JavaScript Injector both load it.
+  if (window.__jfMediaInfoRatings) return;
+  window.__jfMediaInfoRatings = true;
+
+  // Settings from the Essentials plugin, merged over the defaults below; without it the defaults hold.
+  const essentials = (window.JellyfinEssentials && window.JellyfinEssentials.settings && window.JellyfinEssentials.settings.mediaInfoRatings) || {};
+  function mergeSettings(target, source) {
+    Object.keys(source || {}).forEach(function (key) {
+      const value = source[key];
+      const nested = value && typeof value === 'object' && !Array.isArray(value);
+      if (nested && target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) mergeSettings(target[key], value);
+      else target[key] = value;
+    });
+  }
  // ============================================================
   // CONFIG GLOBAL
   // ============================================================
@@ -169,6 +184,9 @@
     // Limit for how many EXTERNAL ratings are rendered (<=0 means no limit; max possible is 11; max=0=11)
     LIMIT_MAX_RATINGS: 6, // 0|1..11
   };
+  mergeSettings(CONFIG_GLOBAL, essentials.CONFIG_GLOBAL);
+  mergeSettings(CONFIG_MOVIE, essentials.CONFIG_MOVIE);
+  mergeSettings(CONFIG_SHOW, essentials.CONFIG_SHOW);
   // ============================================================
   // CONFIG END
   // ============================================================
