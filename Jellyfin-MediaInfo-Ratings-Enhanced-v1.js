@@ -1040,11 +1040,22 @@
       container.appendChild(span);
     });
   }
+  let warnedNoKey = false;
   function fetchRatings(CFG, apiType, tmdbId, container) {
     const key = makeCacheKey(apiType, tmdbId);
     const cached = cacheGet(key);
     if (cached) {
       renderRatingsFromData(CFG, cached, container);
+      return;
+    }
+    // Without a key MDBList answers every request with 401: ask nothing, say so once, and give back the reserved line.
+    if (!CONFIG_GLOBAL.API_KEY) {
+      if (!warnedNoKey) {
+        warnedNoKey = true;
+        warn('API_KEY is empty - no MDBList ratings.');
+      }
+      pruneRibbonSpacers();
+      refreshFlowRowOf(container);
       return;
     }
     const url = `https://api.mdblist.com/tmdb/${apiType}/${tmdbId}?apikey=${CONFIG_GLOBAL.API_KEY}`;
